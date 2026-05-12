@@ -1,0 +1,23 @@
+name: Alex Sample
+headline: Senior backend engineer focused on data-heavy systems
+contact:
+  email: alex.sample@example.com
+  phone: "+61 400 000 000"
+  location: Melbourne, AU
+  linkedin: https://www.linkedin.com/in/alex-sample
+  github: https://github.com/alex-sample
+skills:
+  - Python
+  - PostgreSQL
+  - Kubernetes
+  - Terraform
+  - TypeScript
+  - React
+education:
+  - institution: Sample University
+    degree: Bachelor of Engineering
+    field: Software Engineering
+    year_start: 2014
+    year_end: 2017
+certifications:
+  - AWS Solutions Architect Associate
