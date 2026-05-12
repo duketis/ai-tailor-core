@@ -39,12 +39,14 @@ class TailorRequest(BaseModel):
     """Request body for a tailoring run.
 
     Either ``jd_url`` (we'll fetch it) or ``jd_text`` (paste-in) must be
-    supplied. Each consumer extends this for any extra-input it needs
-    (eg coverletterai accepts a ``resume_run_id`` to ground the letter
-    in a previously-tailored resume).
+    supplied. Consumers subclass to add app-specific fields (eg
+    coverletterai adds ``resume_run_id`` / ``resume_payload`` so the
+    letter can be grounded in a previously-tailored resume); ``extra=
+    'allow'`` lets the subclass's extra keys flow through when an
+    instance is stored inside ``Run.request`` typed as the base.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="allow")
 
     jd_url: str | None = None
     jd_text: str | None = None
