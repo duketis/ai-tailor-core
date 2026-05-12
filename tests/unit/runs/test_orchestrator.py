@@ -400,3 +400,28 @@ def test_execute_inner_raises_orchestrator_error_for_unknown_id(
 ) -> None:
     with pytest.raises(OrchestratorError, match="unknown run"):
         asyncio.run(orchestrator._execute_inner("missing"))
+
+
+def test_pdf_path_from_result_url_decodes_spaces() -> None:
+    """Regression: ``Path.as_uri()`` percent-encodes spaces; the inverse
+    decode must run when we turn the file URL back into a Path or
+    pypdfium2 / pypdf can't find the file."""
+    from tailor_core.runs.orchestrator import _pdf_path_from_result  # noqa: PLC0415
+
+    result = RenderResult(
+        doc_id="run_x",
+        doc_url="file:///app/runs/run_x/Cover%20Letter%20-%20Acme%20-%20Engineer.pdf",
+    )
+    pdf_path = _pdf_path_from_result(result, Path("/app/runs/run_x"))
+    assert pdf_path == Path("/app/runs/run_x/Cover Letter - Acme - Engineer.pdf")
+
+
+def test_pdf_path_from_result_falls_back_to_doc_id_for_non_file_urls(tmp_path: Path) -> None:
+    """Defensive: if a renderer ever emits a non-file URL (eg http://),
+    fall back to ``<output_dir>/<doc_id>.pdf`` rather than trying to
+    fetch it."""
+    from tailor_core.runs.orchestrator import _pdf_path_from_result  # noqa: PLC0415
+
+    result = RenderResult(doc_id="run_x", doc_url="https://example.com/x.pdf")
+    pdf_path = _pdf_path_from_result(result, tmp_path)
+    assert pdf_path == tmp_path / "run_x.pdf"

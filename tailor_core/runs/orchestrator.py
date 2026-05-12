@@ -320,10 +320,17 @@ class BaseOrchestrator[TailoredT: BaseModel, SettingsT: BaseRuntimeSettings]:
 def _pdf_path_from_result(result: RenderResult, output_dir: Path) -> Path:
     """Derive the on-disk PDF path from a :class:`RenderResult`.
 
-    ``doc_url`` is a ``file://`` URL pointing at the rendered PDF; fall
-    back to ``<output_dir>/<doc_id>.pdf`` when the URL isn't parseable
-    (defensive -- consumer renderers should always emit a file URL).
+    ``doc_url`` is a ``file://`` URL pointing at the rendered PDF;
+    ``Path.as_uri()`` percent-encodes spaces + other reserved chars,
+    so we ``unquote`` before turning it back into a Path -- otherwise
+    a filename like ``Cover Letter - Acme - Engineer.pdf`` lands as
+    ``Cover%20Letter%20-%20Acme%20-%20Engineer.pdf`` and pypdfium2
+    can't find it. Falls back to ``<output_dir>/<doc_id>.pdf`` when
+    the URL isn't parseable (defensive -- consumer renderers should
+    always emit a file URL).
     """
     if result.doc_url.startswith("file://"):
-        return Path(result.doc_url.removeprefix("file://"))
+        from urllib.parse import unquote  # noqa: PLC0415
+
+        return Path(unquote(result.doc_url.removeprefix("file://")))
     return output_dir / f"{result.doc_id}.pdf"
