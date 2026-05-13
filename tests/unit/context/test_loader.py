@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tailor_core.context.loader import ContextLoadError, load_user_context
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
 
 # -- happy path against the committed sample ---------------------------------
 
@@ -410,3 +414,29 @@ def test_reference_resumes_loaded_from_root_tex_files(tmp_path: Path) -> None:
 def test_reference_resumes_empty_when_no_tex_files(tmp_path: Path) -> None:
     ctx = load_user_context(tmp_path)
     assert ctx.reference_resumes == ()
+
+
+def test_project_local_path_scan_failure_degrades_to_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mocker: MockerFixture
+) -> None:
+    """When ``scan_project`` raises ScanError or OSError mid-walk, the loader
+    logs and returns an empty scanned body rather than blowing up the
+    whole context-load step."""
+    from tailor_core.local_projects.scanner import ScanError  # noqa: PLC0415
+
+    monkeypatch.setenv("RESUMEAI_PROJECTS_ROOT", str(tmp_path))
+    (tmp_path / "myproject").mkdir()
+    pr = tmp_path / "projects"
+    pr.mkdir()
+    (pr / "myproject.md").write_text(
+        "---\nproject: My Project\nlocal_path: myproject\n---\n\nbody\n",
+        encoding="utf-8",
+    )
+
+    mocker.patch(
+        "tailor_core.context.loader.scan_project",
+        side_effect=ScanError("manifest read blew up mid-walk"),
+    )
+
+    ctx = load_user_context(tmp_path)
+    assert ctx.projects[0].scanned == ""

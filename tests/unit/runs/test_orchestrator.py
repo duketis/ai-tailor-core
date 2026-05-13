@@ -425,3 +425,34 @@ def test_pdf_path_from_result_falls_back_to_doc_id_for_non_file_urls(tmp_path: P
     result = RenderResult(doc_id="run_x", doc_url="https://example.com/x.pdf")
     pdf_path = _pdf_path_from_result(result, tmp_path)
     assert pdf_path == tmp_path / "run_x.pdf"
+
+
+def test_event_bus_property_exposes_supplied_bus(
+    runs: InMemoryRunsStore[StubTailored],
+    settings: InMemorySettingsStore[BaseRuntimeSettings],
+    llm: FakeLLMClient,
+    tmp_path: Path,
+) -> None:
+    """The ``event_bus`` property exposes the bus the SSE route subscribes
+    to. Pinning the accessor so we don't accidentally make a fresh one."""
+    from tailor_core.runs.events import RunEventBus  # noqa: PLC0415
+
+    bus = RunEventBus()
+    orch = _StubOrchestrator(
+        calls={},
+        runs_store=runs,
+        settings_store=settings,
+        llm_client=llm,
+        event_bus=bus,
+        context_root=tmp_path / "userctx",
+        runs_root=tmp_path / "runs",
+    )
+    assert orch.event_bus is bus
+
+
+def test_llm_property_exposes_supplied_client(
+    orchestrator: _StubOrchestrator, llm: FakeLLMClient
+) -> None:
+    """``llm`` property: subclasses (like coverletterai) reach in for the
+    LLM client when forwarding to their agent."""
+    assert orchestrator.llm is llm
