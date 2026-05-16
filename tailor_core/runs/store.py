@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
@@ -49,7 +50,18 @@ class RunsStore[TailoredT: BaseModel](Protocol):
 class SqliteRunsStore[TailoredT: BaseModel]:
     """SQLite-backed implementation. Default db at
     ``~/.tailor_core/tailor_core.db``; consumer apps override with their
-    own path so each app's data lands in one file."""
+    own path so each app's data lands in one file.
+
+    A short-lived connection is opened per operation rather than held
+    on the instance. FastAPI dispatches sync route handlers across a
+    worker threadpool, and a single ``sqlite3.Connection`` is NOT safe
+    for concurrent use from multiple threads even with
+    ``check_same_thread=False`` -- two overlapping requests raise
+    ``sqlite3.InterfaceError: bad parameter or other API misuse`` (seen
+    as coverletterai 500s when two batch tailor chains polled runs at
+    once). Per-call connections sidestep the race entirely; SQLite
+    handles file-level locking and opening a connection is cheap.
+    """
 
     def __init__(
         self,
@@ -64,17 +76,23 @@ class SqliteRunsStore[TailoredT: BaseModel]:
         self._run_cls: type[Run[TailoredT]] = Run[tailored_cls]  # type: ignore[valid-type]
         self._db_path = db_path or DEFAULT_DB_PATH
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        # check_same_thread=False so the connection survives FastAPI's
-        # worker-threadpool dispatch. SQLite serialises writes at the C
-        # level; per-call usage is safe at our concurrency profile.
-        self._conn = sqlite3.connect(self._db_path, isolation_level=None, check_same_thread=False)
-        self._conn.executescript(_SCHEMA_SQL)
+        with closing(self._connect()) as conn:
+            conn.executescript(_SCHEMA_SQL)
+
+    def _connect(self) -> sqlite3.Connection:
+        # isolation_level=None preserves the prior autocommit semantics
+        # so save()/clear() persist without an explicit commit.
+        return sqlite3.connect(self._db_path, isolation_level=None)
 
     def close(self) -> None:
-        self._conn.close()
+        # No persistent connection to close -- every call opens and
+        # closes its own. Kept so callers/tests can treat the store as
+        # a closable resource regardless of backend.
+        return None
 
     def get(self, run_id: str) -> Run[TailoredT] | None:
-        row = self._conn.execute("SELECT payload FROM runs WHERE id = ?", (run_id,)).fetchone()
+        with closing(self._connect()) as conn:
+            row = conn.execute("SELECT payload FROM runs WHERE id = ?", (run_id,)).fetchone()
         if row is None:
             return None
         try:
@@ -85,25 +103,27 @@ class SqliteRunsStore[TailoredT: BaseModel]:
 
     def save(self, run: Run[TailoredT]) -> None:
         payload = run.model_dump_json()
-        self._conn.execute(
-            """INSERT INTO runs (id, payload, created_at, updated_at)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(id) DO UPDATE
-                 SET payload = excluded.payload,
-                     updated_at = excluded.updated_at""",
-            (
-                run.id,
-                payload,
-                run.created_at.isoformat(),
-                run.updated_at.isoformat(),
-            ),
-        )
+        with closing(self._connect()) as conn:
+            conn.execute(
+                """INSERT INTO runs (id, payload, created_at, updated_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE
+                     SET payload = excluded.payload,
+                         updated_at = excluded.updated_at""",
+                (
+                    run.id,
+                    payload,
+                    run.created_at.isoformat(),
+                    run.updated_at.isoformat(),
+                ),
+            )
 
     def list_recent(self, limit: int = 20) -> list[Run[TailoredT]]:
-        rows = self._conn.execute(
-            "SELECT id, payload FROM runs ORDER BY updated_at DESC LIMIT ?",
-            (max(0, limit),),
-        ).fetchall()
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT id, payload FROM runs ORDER BY updated_at DESC LIMIT ?",
+                (max(0, limit),),
+            ).fetchall()
         # Tolerate rows that no longer validate against the current schema
         # (e.g. a renamed enum value). Skipping the row beats 500-ing the
         # whole runs page; the bad record is logged so we can decide
@@ -123,8 +143,9 @@ class SqliteRunsStore[TailoredT: BaseModel]:
         NOT touched -- the user may want to keep the PDF artefacts even
         after clearing the run history. ``rm -rf runs/`` to wipe those.
         """
-        cursor = self._conn.execute("DELETE FROM runs")
-        return cursor.rowcount
+        with closing(self._connect()) as conn:
+            cursor = conn.execute("DELETE FROM runs")
+            return cursor.rowcount
 
 
 class InMemoryRunsStore[TailoredT: BaseModel]:

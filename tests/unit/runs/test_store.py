@@ -177,6 +177,36 @@ def test_sqlite_store_is_usable_from_a_worker_thread(tmp_path: Path) -> None:
         store.close()
 
 
+def test_sqlite_store_survives_concurrent_threadpool_access(tmp_path: Path) -> None:
+    """FastAPI runs sync handlers on a worker threadpool, so overlapping
+    requests hit the store from multiple threads at once. A single shared
+    sqlite3 connection (even check_same_thread=False) raises
+    ``sqlite3.InterfaceError: bad parameter or other API misuse`` under
+    that race. Regression test for the coverletterai 500s observed when
+    two batch tailor chains polled runs concurrently."""
+    from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+
+    db_path = tmp_path / "runs.db"
+    store: SqliteRunsStore[StubTailored] = SqliteRunsStore(
+        tailored_cls=StubTailored, db_path=db_path
+    )
+    try:
+        store.save(_make_run())
+
+        def hammer(i: int) -> None:
+            for _ in range(15):
+                store.save(_make_run(run_id=f"run_{i}"))
+                store.get(f"run_{i}")
+                store.list_recent(limit=5)
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = [pool.submit(hammer, i) for i in range(8)]
+            for fut in futures:
+                fut.result(timeout=20)
+    finally:
+        store.close()
+
+
 def test_sqlite_persists_across_reopen(tmp_path: Path) -> None:
     db_path = tmp_path / "runs.db"
     a: SqliteRunsStore[StubTailored] = SqliteRunsStore(tailored_cls=StubTailored, db_path=db_path)
