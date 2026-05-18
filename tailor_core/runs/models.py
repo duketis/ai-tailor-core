@@ -44,6 +44,14 @@ class TailorRequest(BaseModel):
     letter can be grounded in a previously-tailored resume); ``extra=
     'allow'`` lets the subclass's extra keys flow through when an
     instance is stored inside ``Run.request`` typed as the base.
+
+    ``verified_context`` carries an optional caller-supplied ground-truth
+    block (jobai's pinned ``verified`` / ``source:local_project`` context
+    pool). When present it is injected verbatim into the generation
+    prompt and used as the corpus for the deterministic numeric-claim
+    fact-check, so a hallucinated stat about the candidate's own repos
+    can be caught and corrected on the first pass rather than only via a
+    downstream QA retry.
     """
 
     model_config = ConfigDict(frozen=True, extra="allow")
@@ -51,6 +59,7 @@ class TailorRequest(BaseModel):
     jd_url: str | None = None
     jd_text: str | None = None
     model: str | None = None
+    verified_context: str | None = None
 
     @model_validator(mode="after")
     def _exactly_one_jd_source(self) -> Self:

@@ -44,6 +44,16 @@ def test_tailor_request_rejects_whitespace_only_text() -> None:
         TailorRequest(jd_text="   \n  ")
 
 
+def test_tailor_request_verified_context_defaults_none() -> None:
+    req = TailorRequest(jd_text="Senior Engineer")
+    assert req.verified_context is None
+
+
+def test_tailor_request_carries_verified_context() -> None:
+    req = TailorRequest(jd_text="Senior Engineer", verified_context="jobai: 1,126 tests")
+    assert req.verified_context == "jobai: 1,126 tests"
+
+
 def test_run_status_terminal_set() -> None:
     assert RunStatus.SUCCEEDED.is_terminal
     assert RunStatus.FAILED.is_terminal

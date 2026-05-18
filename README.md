@@ -26,7 +26,7 @@ apps that actually produce a tailored PDF, start at the consumers above.
 | `tailor_core.context_files` | Uploaded-context-file store (PDF + text extraction). |
 | `tailor_core.settings` | `BaseRuntimeSettings` pydantic model + PEP-695 generic SQLite / in-memory stores. Each consumer subclasses to add its own keys. |
 | `tailor_core.runs` | `Run[TailoredT: BaseModel]` generic over the consumer's structured output, `RunStatus`, `RunEvent`, `RunsStore[TailoredT]` (SQLite + in-memory), `RunEventBus`, and the **`BaseOrchestrator[TailoredT, SettingsT]` template-method** that drives the shared phases. Subclasses implement `_tailor`, `_render`, `_verify`, `_verify_visually`. |
-| `tailor_core.verifier` | Two passes: a text-mode LLM-judge scaffold (consumer-supplied `SYSTEM_PROMPT` + structured input → `VerificationResult`) and a vision pass (pypdfium2 rasterise → Anthropic vision API → structured result). Both content-agnostic; each consumer plugs in its own rubric. |
+| `tailor_core.verifier` | Three passes: a text-mode LLM-judge scaffold (consumer-supplied `SYSTEM_PROMPT` + structured input → `VerificationResult`), a vision pass (pypdfium2 rasterise → Anthropic vision API → structured result), and a **deterministic numeric-claim fact-check** (`find_numeric_contradictions` / `verify_numeric_claims`) — pure, no LLM, flags a metric figure only when it both sits by a tracked keyword (tests / coverage / LOC / commits) and appears nowhere in the caller-supplied verified context. All content-agnostic; each consumer plugs in its own rubric. |
 
 ## Design notes worth flagging
 
