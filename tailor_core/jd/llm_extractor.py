@@ -12,10 +12,19 @@ import json
 import re
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 if TYPE_CHECKING:
     from tailor_core.llm.client import LLMClient
+
+
+# A thin or unresolved JD (eg a blind apply-portal URL) can leave the LLM
+# with no advertised title to extract. A blank title must NOT hard-fail the
+# whole tailoring pipeline -- the downstream resume/cover-letter agents can
+# still produce a useful artefact from the skills + must-haves. Coerce to
+# this placeholder so the run proceeds (fail-soft) rather than crashing
+# every retry identically.
+TITLE_FALLBACK = "the advertised role"
 
 
 SYSTEM_PROMPT = """\
@@ -57,12 +66,26 @@ class _LLMExtraction(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    title: str = Field(min_length=1)
+    title: str = Field(default=TITLE_FALLBACK, min_length=1)
     company: str | None = None
     required_skills: list[str] = []
     nice_to_have_skills: list[str] = []
     must_haves: list[str] = []
     employer_vocabulary: list[str] = []
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _coerce_blank_title(cls, value: object) -> str:
+        """Trim the title; coerce a missing/blank/non-string title to a fallback.
+
+        Runs before ``min_length`` so a thin JD that yields an empty title
+        produces a usable placeholder instead of a hard ``ExtractionError``
+        that crashes every retry identically.
+        """
+        if not isinstance(value, str):
+            return TITLE_FALLBACK
+        trimmed = value.strip()
+        return trimmed or TITLE_FALLBACK
 
 
 # Some models still wrap JSON in ```json fences despite system instructions.
@@ -99,6 +122,7 @@ def _parse_extraction_payload(raw: str) -> _LLMExtraction:
 
 __all__ = [
     "SYSTEM_PROMPT",
+    "TITLE_FALLBACK",
     "ExtractionError",
     "extract_with_llm",
 ]

@@ -8,6 +8,7 @@ import pytest
 
 from tailor_core.jd.llm_extractor import (
     SYSTEM_PROMPT,
+    TITLE_FALLBACK,
     ExtractionError,
     _parse_extraction_payload,
     extract_with_llm,
@@ -85,11 +86,37 @@ def test_parse_extraction_payload_raises_on_non_object() -> None:
         _parse_extraction_payload("[1, 2, 3]")
 
 
-def test_parse_extraction_payload_raises_on_missing_required_field() -> None:
+def test_missing_title_coerces_to_fallback_not_raises() -> None:
+    """A thin/blind JD where the LLM omits the title must not nuke the run."""
     payload = dict(_VALID_RESPONSE)
     del payload["title"]
-    with pytest.raises(ExtractionError, match="schema validation"):
-        _parse_extraction_payload(json.dumps(payload))
+    result = _parse_extraction_payload(json.dumps(payload))
+    assert result.title == TITLE_FALLBACK
+    assert result.company == "Acme Corp"
+
+
+def test_empty_title_coerces_to_fallback() -> None:
+    payload = dict(_VALID_RESPONSE, title="")
+    result = _parse_extraction_payload(json.dumps(payload))
+    assert result.title == TITLE_FALLBACK
+
+
+def test_whitespace_title_coerces_to_fallback() -> None:
+    payload = dict(_VALID_RESPONSE, title="   \n\t ")
+    result = _parse_extraction_payload(json.dumps(payload))
+    assert result.title == TITLE_FALLBACK
+
+
+def test_null_title_coerces_to_fallback() -> None:
+    payload = dict(_VALID_RESPONSE, title=None)
+    result = _parse_extraction_payload(json.dumps(payload))
+    assert result.title == TITLE_FALLBACK
+
+
+def test_title_is_trimmed() -> None:
+    payload = dict(_VALID_RESPONSE, title="  Staff Engineer  ")
+    result = _parse_extraction_payload(json.dumps(payload))
+    assert result.title == "Staff Engineer"
 
 
 def test_parse_extraction_payload_ignores_extra_fields() -> None:
